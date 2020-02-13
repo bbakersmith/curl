@@ -498,6 +498,34 @@ static ParameterError GetSizeParameter(struct GlobalConfig *global,
   return PARAM_OK;
 }
 
+static char *replace_encoded_space_with_plus(const char *in)
+{
+  size_t inlen = strlen(in);
+  size_t in_index = 0;
+  size_t out_index = 0;
+
+  char *out = malloc(inlen + 1);
+  if(!out)
+    return NULL;
+
+  while(in_index < inlen) {
+    if(in[in_index] == '%'
+        && in[in_index + 1] == '2'
+        && in[in_index + 2] == '0') {
+      out[out_index] = '+';
+      in_index += 3;
+    }
+    else {
+      out[out_index] = in[in_index];
+      in_index++;
+    }
+    out_index++;
+  }
+  out[out_index] = 0;
+
+  return out;
+}
+
 ParameterError getparameter(const char *flag, /* f or -long-flag */
                             char *nextarg,    /* NULL if unset */
                             bool *usedarg,    /* set to TRUE if the arg
@@ -1387,32 +1415,14 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
           char *enc = curl_easy_escape(NULL, postdata, (int)size);
           Curl_safefree(postdata); /* no matter if it worked or not */
           if(enc) {
+            /* fix space encoding per RFC1866 */
+            char *reenc = replace_encoded_space_with_plus(enc);
+            curl_free(enc); /* TODO should this be Curl_safefree? */
+            if(!reenc)
+              return PARAM_NO_MEM;
+
             /* now make a string with the name from above and append the
                encoded string */
-            size_t enclen = strlen(enc);
-            size_t enc_index = 0;
-            size_t reenc_index = 0;
-            char *reenc = malloc(enclen);
-            if(!reenc) {
-              curl_free(enc);
-              return PARAM_NO_MEM;
-            }
-
-            while(enc_index < enclen) {
-              if(enc[enc_index] == '%'
-                  && enc[enc_index + 1] == '2'
-                  && enc[enc_index + 2] == '0') {
-                reenc[reenc_index] = '+';
-                enc_index += 3;
-              } else {
-                reenc[reenc_index] = enc[enc_index];
-                enc_index++;
-              }
-              reenc_index++;
-            }
-            reenc[reenc_index] = 0;
-            curl_free(enc);
-
             size_t outlen = nlen + strlen(reenc) + 2;
             char *n = malloc(outlen);
             if(!n) {
