@@ -527,6 +527,21 @@ static char *replace_url_encoded_space_with_plus(const char *in)
   return out;
 }
 
+static char *encode_form_data(const char *in, size_t inlen)
+{
+  char *enc = curl_easy_escape(NULL, in, (int)inlen);
+  if(!enc)
+    return NULL;
+
+  /* fix space encoding per RFC1866 */
+  char *out = replace_url_encoded_space_with_plus(enc);
+  curl_free(enc);
+  if(!out)
+    return NULL;
+
+  return out;
+}
+
 ParameterError getparameter(const char *flag, /* f or -long-flag */
                             char *nextarg,    /* NULL if unset */
                             bool *usedarg,    /* set to TRUE if the arg
@@ -1356,11 +1371,11 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
       bool raw_mode = (subletter == 'r');
 
       if(subletter == 'e') { /* --data-urlencode*/
-        /* [name]=[content], we encode the content part only
+        /* [name]=[content], we encode both name and content
          * [name]@[file name]
          *
          * Case 2: we first load the file using that name and then encode
-         * the content.
+         * the name and content.
          */
         const char *p = strchr(nextarg, '=');
         size_t nlen;
@@ -1413,36 +1428,45 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
           size = 0;
         }
         else {
-          char *enc = curl_easy_escape(NULL, postdata, (int)size);
+          /* encode the content */
+          char *encvalue = encode_form_data(postdata, size);
           Curl_safefree(postdata); /* no matter if it worked or not */
-          if(enc) {
-            /* fix space encoding per RFC1866 */
-            char *reenc = replace_url_encoded_space_with_plus(enc);
-            curl_free(enc);
-            if(!reenc)
-              return PARAM_NO_MEM;
-
-            /* now make a string with the name from above and append the
-               encoded string */
-            size_t outlen = nlen + strlen(reenc) + 2;
-            char *n = malloc(outlen);
-            if(!n) {
-              curl_free(reenc);
-              return PARAM_NO_MEM;
-            }
-            if(nlen > 0) { /* only append '=' if we have a name */
-              msnprintf(n, outlen, "%.*s=%s", nlen, nextarg, reenc);
-              size = outlen-1;
-            }
-            else {
-              strcpy(n, reenc);
-              size = outlen-2; /* since no '=' was inserted */
-            }
-            curl_free(reenc);
-            postdata = n;
-          }
-          else
+          if(!encvalue)
             return PARAM_NO_MEM;
+
+          /* if we have a name, encode it too */
+          char *encname = NULL;
+          if(nlen > 0) {
+            encname = encode_form_data(nextarg, nlen);
+            if(!encname) {
+              curl_free(encvalue);
+              return PARAM_NO_MEM;
+            }
+
+            nlen = strlen(encname);
+          }
+
+          /* now make a string with the name from above and append the
+             encoded string */
+          size_t outlen = nlen + strlen(encvalue) + 2;
+          char *n = malloc(outlen);
+          if(!n) {
+            curl_free(encvalue);
+            curl_free(encname);
+            return PARAM_NO_MEM;
+          }
+
+          if(nlen > 0) { /* only append '=' if we have a name */
+            msnprintf(n, outlen, "%.*s=%s", nlen, encname, encvalue);
+            curl_free(encname);
+            size = outlen-1;
+          }
+          else {
+            strcpy(n, encvalue);
+            size = outlen-2; /* since no '=' was inserted */
+          }
+          curl_free(encvalue);
+          postdata = n;
         }
       }
       else if('@' == *nextarg && !raw_mode) {
