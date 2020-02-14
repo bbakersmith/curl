@@ -498,7 +498,7 @@ static ParameterError GetSizeParameter(struct GlobalConfig *global,
   return PARAM_OK;
 }
 
-static char *replace_encoded_space_with_plus(const char *in)
+static char *replace_url_encoded_space_with_plus(const char *in)
 {
   size_t inlen = strlen(in);
   size_t in_index = 0;
@@ -521,7 +521,8 @@ static char *replace_encoded_space_with_plus(const char *in)
     }
     out_index++;
   }
-  out[out_index] = 0;
+
+  out[out_index] = 0; /* terminate string */
 
   return out;
 }
@@ -1416,8 +1417,8 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
           Curl_safefree(postdata); /* no matter if it worked or not */
           if(enc) {
             /* fix space encoding per RFC1866 */
-            char *reenc = replace_encoded_space_with_plus(enc);
-            curl_free(enc); /* TODO should this be Curl_safefree? */
+            char *reenc = replace_url_encoded_space_with_plus(enc);
+            curl_free(enc);
             if(!reenc)
               return PARAM_NO_MEM;
 
