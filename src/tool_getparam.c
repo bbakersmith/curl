@@ -516,7 +516,7 @@ static char *replace_url_encoded_space_with_plus(const char *in)
       in_index += 3;
     }
     else {
-      out[out_index] = in[in_index];
+      out[out_index] = in[in_index]; /* if not an encoded space, copy as is */
       in_index++;
     }
     out_index++;
@@ -529,11 +529,14 @@ static char *replace_url_encoded_space_with_plus(const char *in)
 
 static char *encode_form_data(const char *in, size_t inlen)
 {
+  if(inlen == 0)
+    return strdup(""); /* if no input, return empty string */
+
   char *enc = curl_easy_escape(NULL, in, (int)inlen);
   if(!enc)
     return NULL;
 
-  /* fix space encoding per RFC1866 */
+  /* escape spaces per RFC1866 */
   char *out = replace_url_encoded_space_with_plus(enc);
   curl_free(enc);
   if(!out)
@@ -1434,20 +1437,16 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
           if(!encvalue)
             return PARAM_NO_MEM;
 
-          /* if we have a name, encode it too */
-          char *encname = NULL;
-          if(nlen > 0) {
-            encname = encode_form_data(nextarg, nlen);
-            if(!encname) {
-              curl_free(encvalue);
-              return PARAM_NO_MEM;
-            }
-
-            nlen = strlen(encname);
+          /* encode the name */
+          char *encname = encode_form_data(nextarg, nlen);
+          if(!encname) {
+            curl_free(encvalue);
+            return PARAM_NO_MEM;
           }
 
-          /* now make a string with the name from above and append the
-             encoded string */
+          nlen = strlen(encname);
+
+          /* create the final encoded string */
           size_t outlen = nlen + strlen(encvalue) + 2;
           char *n = malloc(outlen);
           if(!n) {
@@ -1458,7 +1457,6 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
 
           if(nlen > 0) { /* only append '=' if we have a name */
             msnprintf(n, outlen, "%.*s=%s", nlen, encname, encvalue);
-            curl_free(encname);
             size = outlen-1;
           }
           else {
@@ -1466,6 +1464,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
             size = outlen-2; /* since no '=' was inserted */
           }
           curl_free(encvalue);
+          curl_free(encname);
           postdata = n;
         }
       }
